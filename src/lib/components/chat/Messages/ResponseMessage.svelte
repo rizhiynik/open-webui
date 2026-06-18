@@ -58,6 +58,13 @@
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
 	import FollowUps from './ResponseMessage/FollowUps.svelte';
+	// --- Пилот Stage 1: clarification chips (логика в custom-ui, ADR 0002) ---
+	import ClarificationChips from '@bing/custom-ui/features/clarifications/ClarificationChips.svelte';
+	import {
+		getClarificationQuestions,
+		getClarificationSectionTitle,
+		shouldShowPilotClarificationChips
+	} from '@bing/custom-ui/adapters/openwebui/clarifications/clarificationSource';
 	import { fade } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
@@ -1498,7 +1505,15 @@
 						/>
 					{/if}
 
-					{#if (isLastMessage || ($settings?.keepFollowUpPrompts ?? false)) && message.done && !readOnly && (message?.followUps ?? []).length > 0}
+					{#if shouldShowPilotClarificationChips(message, { isLastMessage, readOnly })}
+						<div class="mt-2.5" in:fade={{ duration: 100 }}>
+							<ClarificationChips
+								questions={getClarificationQuestions(message)}
+								title={getClarificationSectionTitle()}
+								onSelect={(prompt) => submitMessage(message?.id, prompt)}
+							/>
+						</div>
+					{:else if (isLastMessage || ($settings?.keepFollowUpPrompts ?? false)) && message.done && !readOnly && (message?.followUps ?? []).length > 0}
 						<div class="mt-2.5" in:fade={{ duration: 100 }}>
 							<FollowUps
 								followUps={message?.followUps}
