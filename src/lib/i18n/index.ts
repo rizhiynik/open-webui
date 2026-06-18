@@ -4,6 +4,12 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import type { i18n as i18nType } from 'i18next';
 import { writable } from 'svelte/store';
 
+// --- Пилот Stage 1: whitelist RU/EN (логика в custom-ui, ADR 0002) ---
+import {
+	filterPilotLanguages,
+	normalizePilotLocale
+} from '@bing/custom-ui/adapters/openwebui/i18n/localePolicy';
+
 const createI18nStore = (i18n: i18nType) => {
 	const i18nWritable = writable(i18n);
 
@@ -41,10 +47,11 @@ const createIsLoadingStore = (i18n: i18nType) => {
 };
 
 export const initI18n = (defaultLocale?: string | undefined) => {
-	const detectionOrder = defaultLocale
+	const normalizedDefault = defaultLocale ? normalizePilotLocale(defaultLocale) : undefined;
+	const detectionOrder = normalizedDefault
 		? ['querystring', 'localStorage']
 		: ['querystring', 'localStorage', 'navigator'];
-	const fallbackDefaultLocale = defaultLocale ? [defaultLocale] : ['en-US'];
+	const fallbackDefaultLocale = normalizedDefault ? [normalizedDefault] : ['en-US'];
 
 	const loadResource = (language: string, namespace: string) =>
 		import(`./locales/${language}/${namespace}.json`);
@@ -70,6 +77,14 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 				escapeValue: false // not needed for svelte as it escapes by default
 			}
 		});
+
+	if (typeof localStorage !== 'undefined' && localStorage.locale) {
+		const fixed = normalizePilotLocale(localStorage.locale);
+		if (fixed !== localStorage.locale) {
+			localStorage.locale = fixed;
+			i18next.changeLanguage(fixed);
+		}
+	}
 };
 
 const i18n = createI18nStore(i18next);
@@ -77,11 +92,12 @@ const isLoadingStore = createIsLoadingStore(i18next);
 
 export const getLanguages = async () => {
 	const languages = (await import(`./locales/languages.json`)).default;
-	return languages;
+	return filterPilotLanguages(languages);
 };
 export const changeLanguage = (lang: string) => {
-	document.documentElement.setAttribute('lang', lang);
-	i18next.changeLanguage(lang);
+	const normalized = normalizePilotLocale(lang);
+	document.documentElement.setAttribute('lang', normalized);
+	i18next.changeLanguage(normalized);
 };
 
 export default i18n;
