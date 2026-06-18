@@ -27,7 +27,19 @@
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import { redirect } from '@sveltejs/kit';
 
+	// --- Пилот Stage 1: Keycloak OIDC-only (thin hooks, логика в custom-ui) ---
+	import KeycloakRedirectNotice from '@bing/custom-ui/features/auth/KeycloakRedirectNotice.svelte';
+	import { isOidcOnlyPilotAuth } from '@bing/custom-ui/config/auth';
+	import {
+		getOidcLoginUrl,
+		getOidcProviderId,
+		hasOauthSession,
+		shouldOidcAutoRedirect
+	} from '@bing/custom-ui/adapters/openwebui/oidcRedirect';
+
 	const i18n = getContext('i18n');
+	/** true — скрыть onboarding/signup/login form, показать KeycloakRedirectNotice */
+	const oidcOnlyPilotAuth = isOidcOnlyPilotAuth();
 
 	let loaded = false;
 
@@ -183,23 +195,29 @@
 		await oauthCallbackHandler();
 		form = $page.url.searchParams.get('form');
 
-		// Auto-redirect to SSO when OAUTH_AUTO_REDIRECT is enabled and the
-		// deployment is unambiguously SSO-only (single provider, no login form,
-		// no LDAP). Suppressed by ?form=, ?error=, onboarding, trusted-header
-		// auth, or an existing session/token.
-		if ($config?.oauth?.auto_redirect && !form && !error) {
-			const providers = Object.keys($config?.oauth?.providers ?? {});
-			if (
-				providers.length === 1 &&
-				$config?.features?.auth !== false &&
-				$config?.features?.enable_login_form === false &&
-				!$config?.features?.enable_ldap &&
-				!$config?.features?.auth_trusted_header &&
-				!$config?.onboarding &&
-				!localStorage.token &&
-				!document.cookie.split('; ').some((c) => c.startsWith('token='))
-			) {
-				window.location.href = `${WEBUI_BASE_URL}/oauth/${providers[0]}/login`;
+		// Явная загрузка config до auto-redirect: store может быть пустым при onMount
+		let backendConfig = $config;
+		if (!getOidcProviderId(backendConfig)) {
+			try {
+				backendConfig = await getBackendConfig();
+				config.set(backendConfig);
+			} catch (loadError) {
+				console.error('Failed to load backend config on auth page', loadError);
+			}
+		}
+
+		// Авто-редирект на Keycloak (OAUTH_AUTO_REDIRECT + OIDC-only политика).
+		// Не срабатывает при ?form=, ?error=, onboarding, trusted-header auth или существующей сессии.
+		if (
+			shouldOidcAutoRedirect(backendConfig, {
+				form,
+				error,
+				hasToken: hasOauthSession()
+			})
+		) {
+			const providerId = getOidcProviderId(backendConfig);
+			if (providerId) {
+				window.location.href = getOidcLoginUrl(WEBUI_BASE_URL, providerId);
 				return;
 			}
 		}
@@ -207,9 +225,14 @@
 		loaded = true;
 		setLogoImage();
 
+		// Пилот: не показывать onboarding первого админа Open WebUI
+		if (oidcOnlyPilotAuth) {
+			onboarding = false;
+		}
+
 		if (($config?.features?.auth_trusted_header ?? false) || $config?.features?.auth === false) {
 			await signInHandler();
-		} else {
+		} else if (!oidcOnlyPilotAuth) {
 			onboarding = $config?.onboarding ?? false;
 		}
 	});
@@ -221,13 +244,16 @@
 	</title>
 </svelte:head>
 
-<OnBoarding
-	bind:show={onboarding}
-	getStartedHandler={() => {
-		onboarding = false;
-		mode = $config?.features.enable_ldap ? 'ldap' : 'signup';
-	}}
-/>
+<!-- Пилот OIDC-only: onboarding Open WebUI отключён -->
+{#if !oidcOnlyPilotAuth}
+	<OnBoarding
+		bind:show={onboarding}
+		getStartedHandler={() => {
+			onboarding = false;
+			mode = $config?.features.enable_ldap ? 'ldap' : 'signup';
+		}}
+	/>
+{/if}
 
 <div class="w-full h-screen max-h-[100dvh] text-white relative" id="auth-page">
 	<div class="w-full h-full absolute top-0 left-0 bg-white dark:bg-black"></div>
@@ -254,6 +280,11 @@
 							</div>
 						</div>
 					</div>
+				<!-- Пилот: вместо формы логина — экран ожидания / fallback SSO -->
+				{:else if oidcOnlyPilotAuth && !$config?.features?.enable_login_form && !$config?.features?.enable_ldap && !form}
+					<KeycloakRedirectNotice
+						providerName={$config?.oauth?.providers?.oidc ?? 'Keycloak'}
+					/>
 				{:else}
 					<div class="my-auto flex flex-col justify-center items-center">
 						<div class=" sm:max-w-md my-auto pb-10 w-full dark:text-gray-100">
@@ -411,7 +442,8 @@
 														: $i18n.t('Create Account')}
 											</button>
 
-											{#if $config?.features.enable_signup && !($config?.onboarding ?? false)}
+											<!-- Пилот OIDC-only: ссылка «зарегистрироваться» скрыта -->
+											{#if !oidcOnlyPilotAuth && $config?.features.enable_signup && !($config?.onboarding ?? false)}
 												<div class=" mt-4 text-sm text-center">
 													{mode === 'signin'
 														? $i18n.t("Don't have an account?")
@@ -575,7 +607,8 @@
 								</div>
 							{/if}
 
-							{#if $config?.features.enable_ldap && $config?.features.enable_login_form}
+							<!-- Пилот OIDC-only: переключатель LDAP скрыт -->
+							{#if !oidcOnlyPilotAuth && $config?.features.enable_ldap && $config?.features.enable_login_form}
 								<div class="mt-2">
 									<button
 										class="flex justify-center items-center text-xs w-full text-center underline"
