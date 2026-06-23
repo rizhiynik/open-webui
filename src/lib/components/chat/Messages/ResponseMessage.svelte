@@ -65,6 +65,17 @@
 		getClarificationSectionTitle,
 		shouldShowPilotClarificationChips
 	} from '@bing/custom-ui/adapters/openwebui/clarifications/clarificationSource';
+	// --- Пилот Stage 1: confidence / blacklist (логика в custom-ui, ADR 0002) ---
+	import ConfidenceWarningBanner from '@bing/custom-ui/features/answer-metadata/ConfidenceWarningBanner.svelte';
+	import BlockedAnswerNotice from '@bing/custom-ui/features/answer-metadata/BlockedAnswerNotice.svelte';
+	import {
+		getAnswerSecurityUiState,
+		getPilotBlockedNoticeText,
+		getPilotConfidenceWarningText,
+		shouldHidePilotAnswerActions,
+		shouldShowPilotBlockedNotice,
+		shouldShowPilotConfidenceWarning
+	} from '@bing/custom-ui/adapters/openwebui/answer-metadata/answerSecuritySource';
 	import { fade } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
@@ -142,6 +153,16 @@
 			}
 		}
 	}
+
+	$: parentUserPrompt =
+		message?.parentId && history?.messages?.[message.parentId]?.role === 'user'
+			? history.messages[message.parentId].content
+			: undefined;
+
+	$: pilotAnswerSecurity = getAnswerSecurityUiState(message, { parentUserPrompt });
+	$: pilotShowBlocked = shouldShowPilotBlockedNotice(pilotAnswerSecurity, message);
+	$: pilotShowConfidence = shouldShowPilotConfidenceWarning(pilotAnswerSecurity, message);
+	$: pilotHideAnswerActions = shouldHidePilotAnswerActions(pilotAnswerSecurity, message);
 
 	export let siblings;
 
@@ -833,7 +854,11 @@
 							class="w-full flex flex-col relative {edit ? 'hidden' : ''}"
 							id="response-content-container"
 						>
-							{#if message.content === '' && !message.done && !message.error && !hasVisibleStatus}
+							{#if pilotShowBlocked}
+								<BlockedAnswerNotice
+									message={getPilotBlockedNoticeText($i18n.language)}
+								/>
+							{:else if message.content === '' && !message.done && !message.error && !hasVisibleStatus}
 								<Skeleton />
 							{:else if message.content && message.error !== true}
 								<!-- always show message contents even if there's an error -->
@@ -876,11 +901,17 @@
 								/>
 							{/if}
 
+							{#if pilotShowConfidence}
+								<ConfidenceWarningBanner
+									message={getPilotConfidenceWarningText($i18n.language)}
+								/>
+							{/if}
+
 							{#if message?.error}
 								<Error content={message?.error?.content ?? message.content} />
 							{/if}
 
-							{#if (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? true)}
+							{#if !pilotShowBlocked && (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? true)}
 								<Citations
 									bind:this={citationsElement}
 									id={message?.id}
@@ -890,14 +921,14 @@
 								/>
 							{/if}
 
-							{#if message.code_executions}
+							{#if !pilotShowBlocked && message.code_executions}
 								<CodeExecutions codeExecutions={message.code_executions} />
 							{/if}
 						</div>
 					</div>
 				</div>
 
-				{#if !edit}
+				{#if !edit && !pilotHideAnswerActions}
 					<div
 						bind:this={buttonsContainerElement}
 						class="flex justify-start overflow-x-auto buttons text-gray-600 dark:text-gray-500 mt-0.5"
@@ -1505,7 +1536,7 @@
 						/>
 					{/if}
 
-					{#if shouldShowPilotClarificationChips(message, { isLastMessage, readOnly })}
+					{#if !pilotShowBlocked && shouldShowPilotClarificationChips(message, { isLastMessage, readOnly })}
 						<div class="mt-2.5" in:fade={{ duration: 100 }}>
 							<ClarificationChips
 								questions={getClarificationQuestions(message)}
