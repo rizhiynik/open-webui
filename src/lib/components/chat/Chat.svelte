@@ -15,6 +15,21 @@
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import equal from 'fast-deep-equal';
 
+	// --- Пилот Stage 1: response mode (логика в custom-ui, ADR 0002) ---
+	import {
+		getEffectiveDefaultResponseMode,
+		type ResponseMode
+	} from '@bing/custom-ui/config/chat-modes';
+	import {
+		canSendWithResponseMode,
+		normalizeSelectableResponseMode
+	} from '@bing/custom-ui/adapters/openwebui/chat-modes/responseModePolicy';
+	import { buildResponseModePayload } from '@bing/custom-ui/adapters/openwebui/chat-modes/responseModePayload';
+	import {
+		getResponseModeForChat,
+		setResponseModeForChat
+	} from '@bing/custom-ui/state/chatResponseMode';
+
 	import {
 		chatId,
 		chats,
@@ -159,6 +174,30 @@
 	let imageGenerationEnabled = false;
 	let webSearchEnabled = false;
 	let codeInterpreterEnabled = false;
+
+	let responseMode: ResponseMode = getEffectiveDefaultResponseMode();
+	let loadedResponseModeForChatKey: string | undefined = undefined;
+
+	const persistResponseMode = (chatKey: string, mode: ResponseMode) => {
+		setResponseModeForChat(chatKey || null, mode);
+	};
+
+	const loadResponseModeForChat = (chatKey: string) => {
+		responseMode = normalizeSelectableResponseMode(getResponseModeForChat(chatKey || null));
+		loadedResponseModeForChatKey = chatKey;
+	};
+
+	const handleResponseModeChange = (mode: ResponseMode) => {
+		responseMode = normalizeSelectableResponseMode(mode);
+		persistResponseMode($chatId || chatIdProp || '', responseMode);
+	};
+
+	$: {
+		const chatKey = $chatId || chatIdProp || '';
+		if (loadedResponseModeForChatKey !== chatKey) {
+			loadResponseModeForChat(chatKey);
+		}
+	}
 
 	let showCommands = false;
 
@@ -2001,6 +2040,12 @@
 			return;
 		}
 
+		const sendModeCheck = canSendWithResponseMode(responseMode);
+		if (!sendModeCheck.allowed) {
+			toast.error(sendModeCheck.message ?? $i18n.t('Unable to send message'));
+			return;
+		}
+
 		if (
 			files.length > 0 &&
 			files.filter((file) => file.type !== 'image' && file.status === 'uploading').length > 0
@@ -2476,6 +2521,8 @@
 				user_message: userMessage,
 				...(regenerationPrompt ? { regeneration_prompt: regenerationPrompt } : {}),
 				...(continueResponse ? { assistant_message_id: responseMessageId } : {}),
+
+				...buildResponseModePayload(responseMode),
 
 				background_tasks: {
 					...(!$temporaryChatEnabled && !_chatId && (userMessage?.parentId ?? null) === null
@@ -3145,6 +3192,8 @@
 									bind:atSelectedModel
 									bind:showCommands
 									bind:dragged
+									bind:responseMode
+									onResponseModeChange={handleResponseModeChange}
 									toolServers={$toolServers}
 									{generating}
 									{stopResponse}
@@ -3226,6 +3275,8 @@
 									bind:atSelectedModel
 									bind:showCommands
 									bind:dragged
+									bind:responseMode
+									onResponseModeChange={handleResponseModeChange}
 									{pendingOAuthTools}
 									toolServers={$toolServers}
 									{stopResponse}

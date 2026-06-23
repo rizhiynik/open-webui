@@ -105,10 +105,20 @@
 	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
 	import TaskList from './Messages/ResponseMessage/TaskList.svelte';
 
+	// --- Пилот Stage 1: response mode selector (логика в custom-ui, ADR 0002) ---
+	import ResponseModeSelector from '@bing/custom-ui/features/chat-modes/ResponseModeSelector.svelte';
+	import {
+		getEffectiveDefaultResponseMode,
+		type ResponseMode
+	} from '@bing/custom-ui/config/chat-modes';
+
 	const i18n = getContext('i18n');
 
 	export let onUpload: Function = (e) => {};
 	export let onChange: Function = () => {};
+	/** Выбранный банковский режим ответа (response_mode в payload) */
+	export let responseMode: ResponseMode = getEffectiveDefaultResponseMode();
+	export let onResponseModeChange: (mode: ResponseMode) => void = () => {};
 
 	export let createMessagePair: Function;
 	export let stopResponse: Function;
@@ -2038,6 +2048,11 @@
 												</Tooltip>
 											{/if}
 										{/if}
+
+										<ResponseModeSelector
+											bind:value={responseMode}
+											on:change={(e) => onResponseModeChange(e.detail)}
+										/>
 
 										{#if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
 											<div class=" flex items-center">

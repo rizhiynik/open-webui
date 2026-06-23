@@ -27,6 +27,10 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
 	import MessageInput from './MessageInput.svelte';
+	import {
+		getEffectiveDefaultResponseMode,
+		type ResponseMode
+	} from '@bing/custom-ui/config/chat-modes';
 	import FolderPlaceholder from './Placeholder/FolderPlaceholder.svelte';
 	import FolderTitle from './Placeholder/FolderTitle.svelte';
 
@@ -45,6 +49,8 @@
 	export let prompt = '';
 	export let files = [];
 	export let messageInput = null;
+	export let responseMode: ResponseMode = getEffectiveDefaultResponseMode();
+	export let onResponseModeChange: (mode: ResponseMode) => void = () => {};
 
 	export let selectedToolIds = [];
 	export let selectedSkillIds = [];
@@ -226,6 +232,8 @@
 					bind:atSelectedModel
 					bind:showCommands
 					bind:dragged
+					bind:responseMode
+					{onResponseModeChange}
 					{pendingOAuthTools}
 					{toolServers}
 					{stopResponse}
